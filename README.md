@@ -92,10 +92,13 @@ This project uses the **DACL10K** dataset, a comprehensive collection of bridge 
 ### DACL10K Dataset
 
 > **Citation:**
-> 
-> Chow, J.K., Su, Z., Wu, J., Tan, P.S., Mao, X., Wang, Y.H. (2020). Anomaly detection of defects on concrete structures with the convolutional autoencoder. *Advanced Engineering Informatics*, 45, 101105.
-> 
-> **Dataset Source:** [DACL10K on DatasetNinja](https://datasetninja.com/dacl10k)
+@inproceedings{flotzinger2024dacl10k,
+  title={dacl10k: benchmark for semantic bridge damage segmentation},
+  author={Flotzinger, Johannes and R{\"o}sch, Philipp J and Braml, Thomas},
+  booktitle={Proceedings of the IEEE/CVF Winter Conference on Applications of Computer Vision},
+  pages={8626--8635},
+  year={2024}
+}
 
 The DACL10K dataset contains:
 - **10,000+** high-resolution bridge images
