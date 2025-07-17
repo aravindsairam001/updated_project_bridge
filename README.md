@@ -192,6 +192,45 @@ dataset = DACL10KDataset(
 )
 ```
 
+## 🖼️ Output Examples
+
+### Web Application Interface
+
+The Streamlit web application provides an intuitive interface for bridge defect detection:
+
+![Web Application Interface](pictures/webpage.png)
+
+*The web interface features drag-and-drop image upload, real-time processing, and detailed defect visualization with color-coded segmentation maps.*
+
+### Defect Detection Results
+
+The system can accurately identify and segment various types of bridge defects:
+
+#### Example 1: Concrete Cracking Detection
+<p align="center">
+  <img src="pictures/cracking-in-concrete.jpg" alt="Input: Concrete Cracking" width="45%" />
+  <img src="pictures/defect_detection_result.png" alt="Output: Defect Segmentation" width="45%" />
+</p>
+
+*Left: Original bridge image showing concrete cracking. Right: AI-generated segmentation mask highlighting detected defects with color-coded classifications.*
+
+#### Example 2: Multiple Defect Detection
+![Defect Detection Result](pictures/defect_detection_result(1).png)
+
+*Advanced defect detection showing multiple defect types simultaneously identified and classified with high precision.*
+
+#### Example 3: Leaching and Weathering
+![Leaching Detection](pictures/leaching.jpg)
+
+*Detection of leaching and weathering patterns in concrete structures, demonstrating the system's capability to identify subtle deterioration signs.*
+
+### Key Visualization Features
+
+- **Color-coded segmentation**: Each defect type is assigned a unique color for easy identification
+- **Confidence mapping**: Visual indication of detection confidence levels
+- **Multi-class detection**: Simultaneous identification of multiple defect types in a single image
+- **Real-time processing**: Immediate results for uploaded images
+
 ## 🤝 Contributing
 
 Contributions are welcome! Please feel free to submit a Pull Request. For major changes, please open an issue first to discuss what you would like to change.
