@@ -217,16 +217,6 @@ The system can accurately identify and segment various types of bridge defects:
 
 *Left: Original bridge image showing concrete cracking. Right: AI-generated segmentation mask highlighting detected defects with color-coded classifications.*
 
-#### Example 2: Multiple Defect Detection
-![Defect Detection Result](pictures/defect_detection_result(1).png)
-
-*Advanced defect detection showing multiple defect types simultaneously identified and classified with high precision.*
-
-#### Example 3: Leaching and Weathering
-![Leaching Detection](pictures/leaching.jpg)
-
-*Detection of leaching and weathering patterns in concrete structures, demonstrating the system's capability to identify subtle deterioration signs.*
-
 ### Key Visualization Features
 
 - **Color-coded segmentation**: Each defect type is assigned a unique color for easy identification
