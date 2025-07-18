@@ -195,7 +195,7 @@ def predict_mask(model, input_tensor, device):
     
     return mask
 
-def create_overlay(image, mask, alpha=0.6):
+def create_overlay(image, mask, alpha=0.6, defect_visibility=None):
     """Create overlay with alias colors for consistent visualization"""
     # Convert image to BGR for OpenCV
     image_bgr = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
@@ -211,6 +211,19 @@ def create_overlay(image, mask, alpha=0.6):
     
     # Apply colors for each class
     for class_id, color in CLASS_COLORS.items():
+        if class_id == 0:  # Always show background
+            continue
+            
+        # Check if this defect should be visible
+        if defect_visibility is not None:
+            if class_id in DEFECT_ALIASES:
+                display_name = DEFECT_ALIASES[class_id]
+            else:
+                display_name = CLASS_LABELS.get(class_id, f"Class {class_id}")
+            
+            if not defect_visibility.get(display_name, True):
+                continue  # Skip this defect if not visible
+        
         if class_id in ALIAS_COLORS_OVERLAY:
             # Use alias color for aliased defects
             bgr_color = (ALIAS_COLORS_OVERLAY[class_id][2], 
@@ -227,7 +240,7 @@ def create_overlay(image, mask, alpha=0.6):
     # Convert back to RGB for display
     return cv2.cvtColor(result, cv2.COLOR_BGR2RGB)
 
-def create_annotated_image(image, mask, present_classes, pixel_threshold=1000):
+def create_annotated_image(image, mask, present_classes, pixel_threshold=1000, defect_visibility=None):
     """Create annotated image with alias-based labeling"""
     annotated = image.copy()
     font = cv2.FONT_HERSHEY_SIMPLEX
@@ -236,6 +249,14 @@ def create_annotated_image(image, mask, present_classes, pixel_threshold=1000):
     y0, dy = 30, 30
     label_count = 0
     
+    # Use same alias colors as overlay for consistency
+    ALIAS_COLORS_OVERLAY = {
+        4: (255, 165, 0),   # Honeycombing (Cavity) - Orange
+        5: (255, 165, 0),   # Honeycombing (Hollowareas) - Orange  
+        10: (0, 255, 255),  # Leaching (Weathering) - Cyan
+        11: (0, 255, 255)   # Leaching (Efflorescence) - Cyan
+    }
+    
     for class_id in present_classes:
         if class_id == 0 or class_id not in ALLOWED_CLASS_IDS:
             continue  # skip background and unwanted classes
@@ -243,24 +264,37 @@ def create_annotated_image(image, mask, present_classes, pixel_threshold=1000):
         if pixel_coverage <= pixel_threshold:
             continue  # skip small regions
             
-        # Use alias if available, with alias colors
+        # Use alias if available, but uniform text color
         if class_id in DEFECT_ALIASES:
             label = DEFECT_ALIASES[class_id]
-            color = ALIAS_COLORS.get(label, CLASS_COLORS.get(class_id, (255, 255, 255)))
         else:
             label = CLASS_LABELS.get(class_id, f"Class {class_id}")
-            color = CLASS_COLORS.get(class_id, (255, 255, 255))
+        
+        # Check if this defect should be visible
+        if defect_visibility is not None:
+            if not defect_visibility.get(label, True):
+                continue  # Skip this defect if not visible
         
         y = y0 + label_count * dy
-        bgr_color = (int(color[2]), int(color[1]), int(color[0]))
+        # Use uniform white color for all text labels
+        uniform_text_color = (255, 255, 255)  # White text
+        bgr_color = (int(uniform_text_color[2]), int(uniform_text_color[1]), int(uniform_text_color[0]))
         cv2.putText(annotated, label, (20, y), font, font_scale, bgr_color, thickness, cv2.LINE_AA)
         label_count += 1
     return annotated
 
-def analyze_defects(mask, present_classes, pixel_threshold=1000):
+def analyze_defects(mask, present_classes, pixel_threshold=1000, defect_visibility=None):
     """Analyze defects with alias-based grouping and filtering"""
     stats = {}
     total_pixels = mask.shape[0] * mask.shape[1]
+    
+    # Use same alias colors as overlay for consistency
+    ALIAS_COLORS_OVERLAY = {
+        4: (255, 165, 0),   # Honeycombing (Cavity) - Orange
+        5: (255, 165, 0),   # Honeycombing (Hollowareas) - Orange  
+        10: (0, 255, 255),  # Leaching (Weathering) - Cyan
+        11: (0, 255, 255)   # Leaching (Efflorescence) - Cyan
+    }
     
     for class_id in present_classes:
         if class_id == 0 or class_id not in ALLOWED_CLASS_IDS:
@@ -271,13 +305,22 @@ def analyze_defects(mask, present_classes, pixel_threshold=1000):
             
         percentage = (class_pixels / total_pixels) * 100
         
-        # Use alias if available, with alias colors
+        # Use alias if available, with same colors as overlay
         if class_id in DEFECT_ALIASES:
             label = DEFECT_ALIASES[class_id]
-            color = ALIAS_COLORS.get(label, CLASS_COLORS.get(class_id, (255, 255, 255)))
+            # Use overlay colors for consistency
+            if class_id in ALIAS_COLORS_OVERLAY:
+                color = ALIAS_COLORS_OVERLAY[class_id]
+            else:
+                color = CLASS_COLORS.get(class_id, (255, 255, 255))
         else:
             label = CLASS_LABELS.get(class_id, f"Class {class_id}")
             color = CLASS_COLORS.get(class_id, (255, 255, 255))
+        
+        # Check if this defect should be visible
+        if defect_visibility is not None:
+            if not defect_visibility.get(label, True):
+                continue  # Skip this defect if not visible
         
         # Combine stats for aliased defects
         if label in stats:
@@ -410,17 +453,122 @@ def main():
             
             # Get present classes
             present_classes = np.unique(mask)
+        
+        # Get detected defects for dynamic visibility controls (outside spinner)
+        detected_defects = []
+        for class_id in present_classes:
+            if class_id == 0 or class_id not in ALLOWED_CLASS_IDS:
+                continue
+            # Check if defect meets pixel threshold
+            pixel_coverage = np.sum(mask == class_id)
+            if pixel_coverage <= pixel_threshold:
+                continue
             
-            # Create visualizations
-            if vis_mode == "Color Overlay":
-                overlay_image = create_overlay(processed_image, mask, alpha)
-                if show_annotations:
-                    annotated_image = create_annotated_image(overlay_image, mask, present_classes, pixel_threshold)
+            # Get display name
+            if class_id in DEFECT_ALIASES:
+                display_name = DEFECT_ALIASES[class_id]
+            else:
+                display_name = CLASS_LABELS.get(class_id, f"Class {class_id}")
+            
+            if display_name not in detected_defects:
+                detected_defects.append(display_name)
+        
+        # Create dynamic defect visibility controls in sidebar (outside spinner)
+        defect_visibility = {}
+        if detected_defects:
+            st.sidebar.subheader("🔍 Detected Defects Visibility")
+            st.sidebar.write(f"Found {len(detected_defects)} defect type(s)")
+            
+            # Create checkboxes for each detected defect
+            for defect_name in sorted(detected_defects):
+                defect_visibility[defect_name] = st.sidebar.checkbox(
+                    f"{defect_name}", 
+                    value=True,
+                    help=f"Toggle visibility of {defect_name} defects"
+                )
+            
+            # Quick select buttons for detected defects
+            sidebar_col1, sidebar_col2 = st.sidebar.columns(2)
+            with sidebar_col1:
+                if st.sidebar.button("🔄 Show All", help="Show all detected defects"):
+                    st.experimental_rerun()
+            with sidebar_col2:
+                if st.sidebar.button("❌ Hide All", help="Hide all detected defects"):
+                    for key in defect_visibility:
+                        defect_visibility[key] = False
+        else:
+            st.sidebar.info("No defects detected above threshold")
+            # Set empty visibility dict when no defects detected
+            defect_visibility = {}
+        
+        # Create visualizations (outside spinner)
+        if vis_mode == "Color Overlay":
+            overlay_image = create_overlay(processed_image, mask, alpha, defect_visibility)
+            if show_annotations:
+                annotated_image = create_annotated_image(overlay_image, mask, present_classes, pixel_threshold, defect_visibility)
+            else:
+                annotated_image = overlay_image
+        else:  # Bounding Box mode
+            annotated_image = processed_image.copy()
+            
+            # Use same alias colors as overlay for consistency
+            ALIAS_COLORS_OVERLAY = {
+                4: (255, 165, 0),   # Honeycombing (Cavity) - Orange
+                5: (255, 165, 0),   # Honeycombing (Hollowareas) - Orange  
+                10: (0, 255, 255),  # Leaching (Weathering) - Cyan
+                11: (0, 255, 255)   # Leaching (Efflorescence) - Cyan
+            }
+            
+            # Draw bounding boxes for each defect class
+            for class_id in present_classes:
+                if class_id == 0 or class_id not in ALLOWED_CLASS_IDS:
+                    continue  # skip background and unwanted classes
+                pixel_coverage = np.sum(mask == class_id)
+                if pixel_coverage <= pixel_threshold:
+                    continue  # skip small regions
+                    
+                # Get label, but use uniform color for bounding boxes and text
+                if class_id in DEFECT_ALIASES:
+                    label = DEFECT_ALIASES[class_id]
                 else:
-                    annotated_image = overlay_image
-            else:  # Bounding Box mode
-                annotated_image = processed_image.copy()
-                # Draw bounding boxes for each defect class
+                    label = CLASS_LABELS.get(class_id, f"Class {class_id}")
+                
+                # Check if this defect should be visible
+                if defect_visibility and not defect_visibility.get(label, True):
+                    continue  # Skip this defect if not visible
+                
+                # Use uniform color for bounding boxes
+                uniform_bbox_color = (0, 255, 0)  # Green bounding boxes
+                
+                mask_bin = (mask == class_id).astype(np.uint8)
+                if np.count_nonzero(mask_bin) == 0:
+                    continue
+                contours, _ = cv2.findContours(mask_bin, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+                for cnt in contours:
+                    x, y, w, h = cv2.boundingRect(cnt)
+                    # Ignore tiny bounding boxes
+                    if w < 10 or h < 10:
+                        continue
+                    cv2.rectangle(annotated_image, (x, y), (x+w, y+h), uniform_bbox_color, 2)
+                    # Add label above the box with uniform color
+                    cv2.putText(annotated_image, label, (x, y-10), 
+                              cv2.FONT_HERSHEY_SIMPLEX, 0.6, uniform_bbox_color, 2, cv2.LINE_AA)
+            # Show class labels on the left margin if enabled
+            if show_annotations:
+                font = cv2.FONT_HERSHEY_SIMPLEX
+                font_scale = 0.7
+                thickness = 2
+                y0, dy = 30, 30
+                label_count = 0
+                
+                # Use same alias colors as overlay for consistency
+                ALIAS_COLORS_OVERLAY = {
+                    4: (255, 165, 0),   # Honeycombing (Cavity) - Orange
+                    5: (255, 165, 0),   # Honeycombing (Hollowareas) - Orange  
+                    10: (0, 255, 255),  # Leaching (Weathering) - Cyan
+                    11: (0, 255, 255)   # Leaching (Efflorescence) - Cyan
+                }
+                
                 for class_id in present_classes:
                     if class_id == 0 or class_id not in ALLOWED_CLASS_IDS:
                         continue  # skip background and unwanted classes
@@ -428,53 +576,22 @@ def main():
                     if pixel_coverage <= pixel_threshold:
                         continue  # skip small regions
                         
-                    # Get color based on alias if available
+                    # Use alias if available, but uniform text color
                     if class_id in DEFECT_ALIASES:
                         label = DEFECT_ALIASES[class_id]
-                        color = ALIAS_COLORS.get(label, CLASS_COLORS.get(class_id, (255,255,255)))
                     else:
                         label = CLASS_LABELS.get(class_id, f"Class {class_id}")
-                        color = CLASS_COLORS.get(class_id, (255,255,255))
                     
-                    mask_bin = (mask == class_id).astype(np.uint8)
-                    if np.count_nonzero(mask_bin) == 0:
-                        continue
-                    contours, _ = cv2.findContours(mask_bin, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-                    for cnt in contours:
-                        x, y, w, h = cv2.boundingRect(cnt)
-                        # Ignore tiny bounding boxes
-                        if w < 10 or h < 10:
-                            continue
-                        cv2.rectangle(annotated_image, (x, y), (x+w, y+h), color, 2)
-                        # Add label above the box
-                        cv2.putText(annotated_image, label, (x, y-10), 
-                                  cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2, cv2.LINE_AA)
-                # Show class labels on the left margin if enabled
-                if show_annotations:
-                    font = cv2.FONT_HERSHEY_SIMPLEX
-                    font_scale = 0.7
-                    thickness = 2
-                    y0, dy = 30, 30
-                    label_count = 0
-                    for class_id in present_classes:
-                        if class_id == 0 or class_id not in ALLOWED_CLASS_IDS:
-                            continue  # skip background and unwanted classes
-                        pixel_coverage = np.sum(mask == class_id)
-                        if pixel_coverage <= pixel_threshold:
-                            continue  # skip small regions
-                            
-                        # Use alias if available, with alias colors
-                        if class_id in DEFECT_ALIASES:
-                            label = DEFECT_ALIASES[class_id]
-                            color = ALIAS_COLORS.get(label, CLASS_COLORS.get(class_id, (255, 255, 255)))
-                        else:
-                            label = CLASS_LABELS.get(class_id, f"Class {class_id}")
-                            color = CLASS_COLORS.get(class_id, (255, 255, 255))
-                        
-                        y = y0 + label_count * dy
-                        bgr_color = (int(color[2]), int(color[1]), int(color[0]))
-                        cv2.putText(annotated_image, label, (20, y), font, font_scale, bgr_color, thickness, cv2.LINE_AA)
-                        label_count += 1
+                    # Check if this defect should be visible
+                    if defect_visibility and not defect_visibility.get(label, True):
+                        continue  # Skip this defect if not visible
+                    
+                    y = y0 + label_count * dy
+                    # Use uniform white color for all text labels
+                    uniform_text_color = (255, 255, 255)  # White text
+                    bgr_color = (int(uniform_text_color[2]), int(uniform_text_color[1]), int(uniform_text_color[0]))
+                    cv2.putText(annotated_image, label, (20, y), font, font_scale, bgr_color, thickness, cv2.LINE_AA)
+                    label_count += 1
         
         with col2:
             st.subheader("🔍 Defect Detection Results")
@@ -488,10 +605,19 @@ def main():
         st.subheader("📊 Defect Analysis")
         
         # Get defect statistics
-        defect_stats = analyze_defects(mask, present_classes, pixel_threshold)
+        defect_stats = analyze_defects(mask, present_classes, pixel_threshold, defect_visibility)
+        
+        # Show visibility info
+        if defect_visibility:
+            visible_defects = [name for name, visible in defect_visibility.items() if visible]
+            if len(visible_defects) < len(defect_visibility):
+                st.info(f"👁️ Currently showing: {', '.join(visible_defects) if visible_defects else 'None'}")
         
         if len(defect_stats) == 0:
-            st.success("✅ No defects detected in this image!")
+            if defect_visibility and len([name for name, visible in defect_visibility.items() if visible]) == 0:
+                st.info("ℹ️ All detected defects are hidden. Enable some defects in the sidebar to see analysis.")
+            else:
+                st.success("✅ No defects detected in this image!")
         else:
             st.warning(f"⚠️ {len(defect_stats)} type(s) of defects detected!")
             
@@ -540,9 +666,9 @@ def main():
         # Download options
         st.subheader("💾 Download Results")
         
-        col1, col2 = st.columns(2)
+        download_col1, download_col2 = st.columns(2)
         
-        with col1:
+        with download_col1:
             # Convert result to bytes for download
             result_pil = Image.fromarray(annotated_image)
             buf = io.BytesIO()
@@ -556,7 +682,7 @@ def main():
                 mime="image/png"
             )
         
-        with col2:
+        with download_col2:
             # Create and download report
             report = f"""
 Bridge Defect Detection Report

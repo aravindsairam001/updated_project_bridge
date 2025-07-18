@@ -64,35 +64,43 @@ class ContinualDataset(Dataset):
         self.replay_samples = replay_samples or []
         
         # Get all new images and filter to only those with corresponding masks
-        all_images = sorted(os.listdir(image_dir))
         self.valid_pairs = []
         
-        for img_file in all_images:
-            img_path = os.path.join(image_dir, img_file)
-            # Handle .jpg, .png, and .jpg.png mask naming conventions
-            if img_file.endswith(".jpg"):
-                mask_file = img_file + ".png"
-                if not os.path.exists(os.path.join(mask_dir, mask_file)):
-                    mask_file = img_file.replace(".jpg", ".png")
-                    if not os.path.exists(os.path.join(mask_dir, mask_file)):
-                        mask_file = img_file.replace(".jpg", ".jpg.png")
-                        if not os.path.exists(os.path.join(mask_dir, mask_file)):
-                            mask_file = img_file.replace(".jpg", ".jpg")  # fallback, may not exist
-            elif img_file.endswith(".png"):
-                mask_file = img_file
-            else:
-                mask_file = img_file + ".png"
-            mask_path = os.path.join(mask_dir, mask_file)
+        # Only scan directory if image_dir is provided and exists
+        if image_dir and os.path.exists(image_dir):
+            all_images = sorted(os.listdir(image_dir))
             
-            if os.path.exists(img_path) and os.path.exists(mask_path):
-                self.valid_pairs.append(('new', img_file, mask_file))
-            else:
-                print(f"Warning: Missing mask for {img_file}, skipping...")
+            for img_file in all_images:
+                img_path = os.path.join(image_dir, img_file)
+                # Handle .jpg, .png, and .jpg.png mask naming conventions
+                if img_file.endswith(".jpg"):
+                    mask_file = img_file + ".png"
+                    if not os.path.exists(os.path.join(mask_dir, mask_file)):
+                        mask_file = img_file.replace(".jpg", ".png")
+                        if not os.path.exists(os.path.join(mask_dir, mask_file)):
+                            mask_file = img_file.replace(".jpg", ".jpg.png")
+                            if not os.path.exists(os.path.join(mask_dir, mask_file)):
+                                mask_file = img_file.replace(".jpg", ".jpg")  # fallback, may not exist
+                elif img_file.endswith(".png"):
+                    mask_file = img_file
+                    if not os.path.exists(os.path.join(mask_dir, mask_file)):
+                        mask_file = img_file.replace(".png", ".jpg")
+                else:
+                    mask_file = img_file + ".png"
+                    if not os.path.exists(os.path.join(mask_dir, mask_file)):
+                        mask_file = img_file + ".jpg"
+                mask_path = os.path.join(mask_dir, mask_file)
+                
+                if os.path.exists(img_path) and os.path.exists(mask_path):
+                    self.valid_pairs.append(('new', img_file, mask_file))
+                else:
+                    print(f"Warning: Missing mask for {img_file}, skipping...")
         
         # Add replay samples
         self.valid_pairs.extend(self.replay_samples)
         
-        print(f"Found {len(self.valid_pairs)} samples ({len(self.valid_pairs) - len(self.replay_samples)} new + {len(self.replay_samples)} replay)")
+        new_samples_count = len(self.valid_pairs) - len(self.replay_samples)
+        print(f"Found {len(self.valid_pairs)} samples ({new_samples_count} new + {len(self.replay_samples)} replay)")
 
     def __len__(self):
         return len(self.valid_pairs)
@@ -117,6 +125,17 @@ class ContinualDataset(Dataset):
         mask = cv2.imread(mask_path, cv2.IMREAD_GRAYSCALE)
         if mask is None:
             raise ValueError(f"Could not load mask: {mask_path}")
+        
+        # Validate and clip mask values to ensure they're in valid range [0, NUM_CLASSES-1]
+        mask = np.clip(mask, 0, NUM_CLASSES - 1)
+        
+        # Check for any remaining invalid values and warn
+        unique_values = np.unique(mask)
+        if len(unique_values) > NUM_CLASSES:
+            print(f"Warning: Mask {mask_path} has {len(unique_values)} unique values, expected max {NUM_CLASSES}")
+            print(f"Unique values: {unique_values}")
+            # Additional clipping to be safe
+            mask = np.where(mask >= NUM_CLASSES, 0, mask)  # Set invalid values to background
 
         if self.transform:
             augmented = self.transform(image=image, mask=mask)
@@ -253,6 +272,52 @@ def ewc_loss(model, fisher, old_params, lambda_ewc):
         if name in fisher:
             loss += (fisher[name] * (param - old_params[name]) ** 2).sum()
     return lambda_ewc * loss
+
+def validate_dataset_masks(image_dir, mask_dir, num_classes=12):
+    """Validate that all mask files have valid class labels"""
+    print("Validating mask files...")
+    
+    if not image_dir or not os.path.exists(image_dir):
+        return  # Skip validation for replay-only datasets
+    
+    all_images = sorted(os.listdir(image_dir))
+    invalid_masks = []
+    
+    for img_file in all_images[:10]:  # Check first 10 files as sample
+        # Find corresponding mask
+        if img_file.endswith(".jpg"):
+            mask_file = img_file + ".png"
+            if not os.path.exists(os.path.join(mask_dir, mask_file)):
+                mask_file = img_file.replace(".jpg", ".png")
+                if not os.path.exists(os.path.join(mask_dir, mask_file)):
+                    mask_file = img_file.replace(".jpg", ".jpg.png")
+                    if not os.path.exists(os.path.join(mask_dir, mask_file)):
+                        mask_file = img_file.replace(".jpg", ".jpg")
+        elif img_file.endswith(".png"):
+            mask_file = img_file
+            if not os.path.exists(os.path.join(mask_dir, mask_file)):
+                mask_file = img_file.replace(".png", ".jpg")
+        else:
+            mask_file = img_file + ".png"
+            if not os.path.exists(os.path.join(mask_dir, mask_file)):
+                mask_file = img_file + ".jpg"
+        
+        mask_path = os.path.join(mask_dir, mask_file)
+        if os.path.exists(mask_path):
+            mask = cv2.imread(mask_path, cv2.IMREAD_GRAYSCALE)
+            if mask is not None:
+                unique_values = np.unique(mask)
+                max_val = np.max(unique_values)
+                if max_val >= num_classes:
+                    invalid_masks.append((mask_file, unique_values, max_val))
+    
+    if invalid_masks:
+        print(f"⚠️  Found {len(invalid_masks)} masks with invalid class labels:")
+        for mask_file, unique_vals, max_val in invalid_masks:
+            print(f"  - {mask_file}: max value {max_val}, unique: {unique_vals}")
+        print(f"  Valid range is [0, {num_classes-1}]. Values will be clipped during training.")
+    else:
+        print("✅ All sampled masks have valid class labels.")
 
 def save_replay_buffer(original_dataset_dir, replay_dir, num_samples):
     """Save samples from original dataset for replay"""
@@ -414,6 +479,9 @@ def main():
     if not os.path.exists(new_img_dir) or not os.path.exists(new_mask_dir):
         print(f"Error: New dataset should have 'images' and 'masks' subdirectories.")
         return
+    
+    # Validate mask files before training
+    validate_dataset_masks(new_img_dir, new_mask_dir, NUM_CLASSES)
     
     # Create replay buffer
     replay_dir = os.path.join(new_data_dir, "replay_buffer")

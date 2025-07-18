@@ -31,7 +31,7 @@ signal.signal(signal.SIGTERM, handle_kill_signal)  # kill command
 # Focus: Image quality enhancement rather than real-world simulation
 NUM_CLASSES = 12  # 11 defect classes + background (matching minimal class subset)
 BATCH_SIZE = 4    # Reduced for larger models (EfficientNet/ConvNeXt)
-NUM_EPOCHS = 10   # Sufficient for convergence on internet images
+NUM_EPOCHS = 100   # Sufficient for convergence on internet images
 IMAGE_SIZE = 512
 DATASET_DIR = 'Datasets/dacl10k_ninja'
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -47,7 +47,7 @@ MODEL_SAVE_PATH = f'dacl10k_{ARCHITECTURE}_{ENCODER_NAME.replace("-", "_")}_ver1
 # ARCHITECTURE = 'fpn'; ENCODER_NAME = 'se_resnext101_32x4d'  # Best for detailed features
 # ARCHITECTURE = 'unetplusplus'; ENCODER_NAME = 'efficientnet-b7'  # Best accuracy (if memory allows)
 # ARCHITECTURE = 'deeplabv3plus'; ENCODER_NAME = 'resnext101_32x8d'  # Good balance
-# ------------------------
+# --------------------------------
 
 # -------- Dataset --------
 class DACL10KDataset(Dataset):
